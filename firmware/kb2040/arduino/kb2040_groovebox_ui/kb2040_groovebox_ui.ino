@@ -4,7 +4,7 @@
 #include <Adafruit_MCP23X17.h>
 #include <Adafruit_seesaw.h>
 
-#include "midi_protocol.h"
+#include "../../../midi_protocol.h"
 
 // ------------------------- I2C ADDRESSES -----------------------------
 #define OLED_ADDR    0x3C
