@@ -322,6 +322,10 @@ void releaseKey(uint8_t idx)
 }
 
 // ------------------------- OLED UI -----------------------------------
+bool looperRecordingUI = false;
+bool looperPlayingUI   = false;
+bool looperHasLoopUI   = false;
+
 void drawUI(bool keyActive, uint8_t keyLabel, uint8_t midiNote)
 {
   u8g2.clearBuffer();
@@ -431,10 +435,6 @@ bool btnPrevA     = false;
 bool btnPrevB     = false;
 bool btnPrevSEL   = false;
 bool btnPrevSTART = false;
-
-bool looperRecordingUI = false;
-bool looperPlayingUI   = false;
-bool looperHasLoopUI   = false;
 
 bool     startPressing     = false;
 uint32_t startPressStartMs = 0;
