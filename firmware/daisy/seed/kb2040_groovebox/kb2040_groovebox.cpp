@@ -24,8 +24,11 @@ static const float kPitchBendRange  = 2.0f;  // +/- 2 semitones
 static const float kDetuneSemi      = 0.08f; // osc2 slight detune
 static const float kMaxFilterCutoff = 10000.0f;
 static const float kMinFilterCutoff = 80.0f;
-static const float kPi             = 3.14159265358979323846f;
-static const float kTwoPi          = 2.0f * kPi;
+#ifdef PI
+static const float kTwoPi          = 2.0f * PI;
+#else
+static const float kTwoPi          = 6.28318530717958647692f;
+#endif
 
 enum InstrumentMode
 {
