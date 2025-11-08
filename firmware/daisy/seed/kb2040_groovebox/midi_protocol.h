@@ -18,10 +18,7 @@ namespace MidiCC
 {
     // Joystick / expression
     constexpr uint8_t MODWHEEL      = 1;   // joystick Y -> mod wheel
-    constexpr uint8_t VOLUME        = 7;   // master volume (param slot 7)
-
-    // "Special" / reserved button events
-    constexpr uint8_t SPECIAL       = 22;  // SELECT/START buttons send CC22
+    constexpr uint8_t VOLUME        = 7;   // master volume (encoder alt)
 
     // Sustain
     constexpr uint8_t SUSTAIN_PEDAL = 64;  // X/Y buttons -> sustain
@@ -34,4 +31,16 @@ namespace MidiCC
     constexpr uint8_t SUSTAIN       = 74;  // env sustain
     constexpr uint8_t RELEASE       = 75;  // env release
     constexpr uint8_t VIBRATO_RATE  = 76;  // vibrato LFO rate
+    constexpr uint8_t DELAY_TIME    = 77;  // delay time
+    constexpr uint8_t DELAY_FEEDBACK= 78;  // delay feedback
+    constexpr uint8_t DELAY_MIX     = 79;  // delay mix level
+    constexpr uint8_t REVERB_MIX    = 80;  // reverb send mix
+    constexpr uint8_t REVERB_TIME   = 81;  // reverb size / decay
+    constexpr uint8_t BASS_BOOST    = 84;  // low boost amount
+    constexpr uint8_t DRIVE         = 85;  // distortion drive
+    constexpr uint8_t LOOPER_LEVEL  = 92;  // playback level for loop
+
+    // Instrument / looper control
+    constexpr uint8_t INSTRUMENT_MODE = 90; // 0=synth, >=64=drum kit
+    constexpr uint8_t LOOPER_CONTROL  = 91; // values: <20 stop, ~40 record toggle, ~80 play toggle
 }
