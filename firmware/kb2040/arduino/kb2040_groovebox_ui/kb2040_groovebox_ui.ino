@@ -4,6 +4,8 @@
 #include <Adafruit_MCP23X17.h>
 #include <Adafruit_seesaw.h>
 
+#include "../../../midi_protocol.h"
+
 // ------------------------- I2C ADDRESSES -----------------------------
 #define OLED_ADDR    0x3C
 #define MCP1_ADDR    0x26
@@ -79,6 +81,10 @@ uint8_t       noteForIndex[20];
 int8_t  lastKeyIdx  = -1;
 uint8_t lastKeyMidi = 0;
 
+bool looperRecordingUI = false;
+bool looperPlayingUI   = false;
+bool looperHasLoopUI   = false;
+
 // ------------------------- MIDI helpers ------------------------------
 static inline void midiSend3(uint8_t s, uint8_t d1, uint8_t d2) {
   Serial1.write(s); Serial1.write(d1); Serial1.write(d2);
@@ -107,47 +113,27 @@ int16_t pbFromAnalog(int v, int center, int dead) {
 // ------------------------- Key scan state ----------------------------
 uint16_t prev1 = 0xFFFF, prev2 = 0xFFFF;
 
-// ------------------------- Synth parameters (8 knobs) ----------------
-enum ParamId {
-  P_CUTOFF = 0,
-  P_RESO,
-  P_ATTACK,
-  P_DECAY,
-  P_SUSTAIN,
-  P_RELEASE,
-  P_VIBRATE,
-  P_VOLUME,
-  NUM_PARAMS
+// ------------------------- Encoder parameter map ---------------------
+const int NUM_ENCODERS        = 8;
+const int PARAMS_PER_ENCODER  = 2;
+
+struct EncoderParam {
+  const char* name[PARAMS_PER_ENCODER];
+  uint8_t     cc[PARAMS_PER_ENCODER];
+  uint8_t     value[PARAMS_PER_ENCODER];
+  uint8_t     def[PARAMS_PER_ENCODER];
+  uint8_t     active; // 0 or 1
 };
 
-const uint8_t paramCC[NUM_PARAMS] = {
-  70, // Cutoff
-  71, // Reso
-  72, // Attack
-  73, // Decay
-  74, // Sustain
-  75, // Release
-  76, // Vibrato rate
-  7   // Volume
-};
-
-const char *paramShortName[NUM_PARAMS] = {
-  "Cut","Res","Atk","Dec","Sus","Rel","Vrt","Vol"
-};
-
-uint8_t paramValue[NUM_PARAMS] = {
-  96,  // Cutoff
-  32,  // Reso
-  10,  // Attack
-  64,  // Decay
-  100, // Sustain
-  40,  // Release
-  64,  // Vibrato rate
-  110  // Volume
-};
-
-const uint8_t paramDefault[NUM_PARAMS] = {
-  96,32,10,64,100,40,64,110
+EncoderParam encoderParams[NUM_ENCODERS] = {
+  { {"Cut", "Res"},   {MidiCC::CUTOFF,        MidiCC::RESONANCE},     {96, 32},  {96, 32}, 0 },
+  { {"DlyT","DlyF"}, {MidiCC::DELAY_TIME,    MidiCC::DELAY_FEEDBACK}, {64, 72},  {64, 72}, 0 },
+  { {"DlyM","RevM"}, {MidiCC::DELAY_MIX,     MidiCC::REVERB_MIX},     {40, 64},  {40, 64}, 0 },
+  { {"RevS","Bass"}, {MidiCC::REVERB_TIME,   MidiCC::BASS_BOOST},     {80, 72},  {80, 72}, 0 },
+  { {"Drv", "Vol"},   {MidiCC::DRIVE,         MidiCC::VOLUME},        {32, 110}, {32, 110},0 },
+  { {"Atk", "Dec"},   {MidiCC::ATTACK,        MidiCC::DECAY},         {10, 64},  {10, 64}, 0 },
+  { {"Sus", "Rel"},   {MidiCC::SUSTAIN,       MidiCC::RELEASE},       {100, 40}, {100, 40},0 },
+  { {"VibR","Loop"}, {MidiCC::VIBRATO_RATE,  MidiCC::LOOPER_LEVEL},   {64, 96},  {64, 96}, 0 },
 };
 
 // ------------------------- Note name helper --------------------------
@@ -163,14 +149,37 @@ void midiNoteName(uint8_t note, char* buf, size_t len)
 }
 
 // ------------------------- Play modes & chords -----------------------
-enum PlayMode  { MODE_SINGLE = 0, MODE_CHORD = 1 };
+enum PlayMode  { MODE_SINGLE = 0, MODE_CHORD, MODE_SCALE, MODE_DRUM, NUM_PLAY_MODES };
 enum ChordType { CH_MAJ = 0, CH_MIN, CH_DOM7, CH_MIN7, CH_DIM7, NUM_CHORD_TYPES };
+enum ScaleType { SC_MAJOR = 0, SC_DORIAN, SC_NAT_MINOR, SC_PENT_MAJOR, SC_PENT_MINOR, NUM_SCALE_TYPES };
 
 PlayMode  g_playMode  = MODE_SINGLE;
 ChordType g_chordType = CH_MAJ;
+ScaleType g_scaleType = SC_MAJOR;
 
-const char* modeNames[2] = {"SGL", "CHD"};
+const char* modeNames[NUM_PLAY_MODES] = {"SGL", "CHD", "SCL", "DRM"};
 const char* chordNames[NUM_CHORD_TYPES] = {"Maj","Min","7","m7","dim7"};
+const char* scaleNames[NUM_SCALE_TYPES] = {"Major","Dorian","Minor","Penta+","Penta-"};
+
+const uint8_t scaleSteps[NUM_SCALE_TYPES][8] = {
+  {0,2,4,5,7,9,11,12},   // Major
+  {0,2,3,5,7,9,10,12},   // Dorian
+  {0,2,3,5,7,8,10,12},   // Natural minor
+  {0,2,4,7,9,12,14,16},  // Major pentatonic repeated
+  {0,3,5,7,10,12,15,17}, // Minor pentatonic repeated
+};
+
+const uint8_t scaleSizes[NUM_SCALE_TYPES] = {7,7,7,5,5};
+
+const uint8_t drumNoteMap[20] = {
+  36,38,39,41,45,42,46,49,51,46,
+  36,38,43,47,49,42,46,49,51,46
+};
+
+const char* drumNameMap[20] = {
+  "Kick","Snare","Clap","TomL","TomH","CHat","OHat","Perc","Ride","OHat",
+  "Kick2","Snr2","TomM","TomHi","Perc2","CHat","OHat","Perc","Ride","OHat"
+};
 
 const int8_t chordIntervals[NUM_CHORD_TYPES][4] = {
   {0, 4, 7, -1},   // Maj
@@ -189,22 +198,40 @@ struct KeyState {
 };
 KeyState keyState[20];
 
-// ------------------------- Param helpers -----------------------------
-void bumpParam(int p, int delta) {
-  if (p < 0 || p >= NUM_PARAMS) return;
-  int v = (int)paramValue[p] + delta;
-  if (v < 0)   v = 0;
-  if (v > 127) v = 127;
-  if (v != paramValue[p]) {
-    paramValue[p] = (uint8_t)v;
-    sendCC(paramCC[p], paramValue[p]);
+void updateNoteMap()
+{
+  if (g_playMode == MODE_DRUM) {
+    for (int i = 0; i < 20; ++i)
+      noteForIndex[i] = drumNoteMap[i];
+    return;
+  }
+
+  if (g_playMode == MODE_SCALE) {
+    uint8_t size = scaleSizes[(int)g_scaleType];
+    const uint8_t *steps = scaleSteps[(int)g_scaleType];
+    for (int i = 0; i < 20; ++i) {
+      int octave = i / size;
+      int degree = i % size;
+      noteForIndex[i] = ROOT_NOTE + steps[degree] + octave * 12;
+    }
+  } else {
+    for (int i = 0; i < 20; ++i)
+      noteForIndex[i] = ROOT_NOTE + i;
   }
 }
 
-void resetParamToDefault(int p) {
-  if (p < 0 || p >= NUM_PARAMS) return;
-  paramValue[p] = paramDefault[p];
-  sendCC(paramCC[p], paramValue[p]);
+// ------------------------- Param helpers -----------------------------
+void bumpEncoderValue(int enc, int delta) {
+  if (enc < 0 || enc >= NUM_ENCODERS) return;
+  EncoderParam &cfg = encoderParams[enc];
+  int slot = cfg.active;
+  int v = (int)cfg.value[slot] + delta;
+  if (v < 0)   v = 0;
+  if (v > 127) v = 127;
+  if (v != cfg.value[slot]) {
+    cfg.value[slot] = (uint8_t)v;
+    sendCC(cfg.cc[slot], cfg.value[slot]);
+  }
 }
 
 // ------------------------- Daisy hardware reset ----------------------
@@ -244,7 +271,12 @@ void playKey(uint8_t idx, uint8_t velocity)
 
   uint8_t root = noteForIndex[idx];
 
-  if (g_playMode == MODE_SINGLE) {
+  if (g_playMode == MODE_DRUM) {
+    uint8_t midi = noteForIndex[idx];
+    ks.notes[0] = midi;
+    ks.count    = 1;
+    sendNoteOn(midi, velocity);
+  } else if (g_playMode == MODE_SINGLE || g_playMode == MODE_SCALE) {
     ks.notes[0] = root;
     ks.count    = 1;
     sendNoteOn(root, velocity);
@@ -282,11 +314,15 @@ void drawUI(bool keyActive, uint8_t keyLabel, uint8_t midiNote)
   u8g2.drawRFrame(0, 0, 128, 18, 3);
 
   if (keyActive) {
-    char noteStr[8];
-    midiNoteName(midiNote, noteStr, sizeof(noteStr));
-
     u8g2.setFont(u8g2_font_t0_16b_tf);
-    u8g2.drawStr(4, 14, noteStr);
+    if (g_playMode == MODE_DRUM && lastKeyIdx >= 0) {
+      const char* dname = drumNameMap[lastKeyIdx];
+      u8g2.drawStr(4, 14, dname);
+    } else {
+      char noteStr[8];
+      midiNoteName(midiNote, noteStr, sizeof(noteStr));
+      u8g2.drawStr(4, 14, noteStr);
+    }
 
     u8g2.setFont(u8g2_font_6x10_tf);
     snprintf(line, sizeof(line), "K%2u", keyLabel);
@@ -323,38 +359,50 @@ void drawUI(bool keyActive, uint8_t keyLabel, uint8_t midiNote)
   // --- Mode line ------------------------------------------------------
   u8g2.setFont(u8g2_font_6x10_tf);
   const char* mname = modeNames[(int)g_playMode];
-  const char* cname = (g_playMode == MODE_CHORD)
-                        ? chordNames[(int)g_chordType]
-                        : "---";
-  snprintf(line, sizeof(line), "Mode:%s  Ch:%s", mname, cname);
+  const char* varName = "---";
+  if (g_playMode == MODE_CHORD)
+    varName = chordNames[(int)g_chordType];
+  else if (g_playMode == MODE_SCALE)
+    varName = scaleNames[(int)g_scaleType];
+  else if (g_playMode == MODE_DRUM)
+    varName = "Kit1";
+
+  const char* loopState = "---";
+  if (looperRecordingUI)
+    loopState = "REC";
+  else if (looperPlayingUI)
+    loopState = "PLY";
+  else if (looperHasLoopUI)
+    loopState = "RDY";
+
+  snprintf(line, sizeof(line), "M:%s V:%s L:%s", mname, varName, loopState);
   u8g2.drawStr(2, 28, line);
 
   // --- Parameters grid (4 rows x 2 params) ---------------------------
   int y = 38;
   const int dy = 8;
 
-  snprintf(line, sizeof(line), "%s:%3u  %s:%3u",
-           paramShortName[P_CUTOFF],  paramValue[P_CUTOFF],
-           paramShortName[P_RESO],    paramValue[P_RESO]);
-  u8g2.drawStr(2, y, line);
+  for (int row = 0; row < 4; ++row) {
+    int leftIdx  = row;
+    int rightIdx = row + 4;
 
-  y += dy;
-  snprintf(line, sizeof(line), "%s:%3u  %s:%3u",
-           paramShortName[P_ATTACK],  paramValue[P_ATTACK],
-           paramShortName[P_DECAY],   paramValue[P_DECAY]);
-  u8g2.drawStr(2, y, line);
+    const EncoderParam &left = encoderParams[leftIdx];
+    const EncoderParam &right = encoderParams[rightIdx];
 
-  y += dy;
-  snprintf(line, sizeof(line), "%s:%3u  %s:%3u",
-           paramShortName[P_SUSTAIN], paramValue[P_SUSTAIN],
-           paramShortName[P_RELEASE], paramValue[P_RELEASE]);
-  u8g2.drawStr(2, y, line);
+    char leftStr[16];
+    char rightStr[16];
+    char lslot = left.active ? '2' : '1';
+    char rslot = right.active ? '2' : '1';
 
-  y += dy;
-  snprintf(line, sizeof(line), "%s:%3u  %s:%3u",
-           paramShortName[P_VIBRATE], paramValue[P_VIBRATE],
-           paramShortName[P_VOLUME],  paramValue[P_VOLUME]);
-  u8g2.drawStr(2, y, line);
+    snprintf(leftStr, sizeof(leftStr), "%s%c:%03u",
+             left.name[left.active], lslot, left.value[left.active]);
+    snprintf(rightStr, sizeof(rightStr), "%s%c:%03u",
+             right.name[right.active], rslot, right.value[right.active]);
+
+    snprintf(line, sizeof(line), "%s  %s", leftStr, rightStr);
+    u8g2.drawStr(2, y, line);
+    y += dy;
+  }
 
   u8g2.sendBuffer();
 }
@@ -366,6 +414,10 @@ bool btnPrevA     = false;
 bool btnPrevB     = false;
 bool btnPrevSEL   = false;
 bool btnPrevSTART = false;
+
+bool     startPressing     = false;
+uint32_t startPressStartMs = 0;
+const uint32_t LOOP_CLEAR_MS = 700;
 
 // ------------------------- setup() -----------------------------------
 void setup()
@@ -383,12 +435,11 @@ void setup()
   Wire.begin();
   Wire.setClock(400000);
 
-  // Note map: strict chromatic
   for (int i = 0; i < 20; ++i) {
-    noteForIndex[i] = ROOT_NOTE + i;
     keyState[i].pressed = false;
     keyState[i].count   = 0;
   }
+  updateNoteMap();
 
   u8g2.setI2CAddress(OLED_ADDR << 1);
   u8g2.begin();
@@ -459,8 +510,14 @@ void setup()
   }
 
   // Initial param CCs
-  for (int p = 0; p < NUM_PARAMS; ++p)
-    sendCC(paramCC[p], paramValue[p]);
+  for (int enc = 0; enc < NUM_ENCODERS; ++enc) {
+    for (int slot = 0; slot < PARAMS_PER_ENCODER; ++slot)
+      sendCC(encoderParams[enc].cc[slot], encoderParams[enc].value[slot]);
+  }
+
+  // Ensure synth starts in voice mode
+  sendCC(MidiCC::INSTRUMENT_MODE, 0);
+  sendCC(MidiCC::LOOPER_CONTROL, 0);
 
   delay(200);
   pulseDaisyReset();
@@ -553,7 +610,7 @@ void loop()
     }
   }
   if (abs((int)mod - (int)lastMod) > 2) {
-    sendCC(1, mod);
+    sendCC(MidiCC::MODWHEEL, mod);
     lastMod = mod;
   }
 
@@ -567,28 +624,72 @@ void loop()
 
   // Sustain ON/OFF
   if (nowX && !btnPrevX) {
-    sendCC(64, 127);
+    sendCC(MidiCC::SUSTAIN_PEDAL, 127);
   }
   if (nowYb && !btnPrevY) {
-    sendCC(64, 0);
+    sendCC(MidiCC::SUSTAIN_PEDAL, 0);
   }
 
-  // A: toggle play mode
+  // A: cycle play modes (single -> chord -> scale -> drum)
   if (nowA && !btnPrevA) {
-    g_playMode = (g_playMode == MODE_SINGLE) ? MODE_CHORD : MODE_SINGLE;
+    g_playMode = (PlayMode)((((int)g_playMode) + 1) % NUM_PLAY_MODES);
+    updateNoteMap();
+    lastKeyIdx  = -1;
+    lastKeyMidi = 0;
+    if (g_playMode == MODE_DRUM)
+      sendCC(MidiCC::INSTRUMENT_MODE, 127);
+    else
+      sendCC(MidiCC::INSTRUMENT_MODE, 0);
   }
 
-  // B: cycle chord type
+  // B: cycle chord/scale variations depending on mode
   if (nowB && !btnPrevB) {
-    g_chordType = (ChordType)((((int)g_chordType) + 1) % NUM_CHORD_TYPES);
+    if (g_playMode == MODE_CHORD) {
+      g_chordType = (ChordType)((((int)g_chordType) + 1) % NUM_CHORD_TYPES);
+    } else if (g_playMode == MODE_SCALE) {
+      g_scaleType = (ScaleType)((((int)g_scaleType) + 1) % NUM_SCALE_TYPES);
+      updateNoteMap();
+      lastKeyIdx  = -1;
+      lastKeyMidi = 0;
+    }
   }
 
-  // SELECT / START: still send CC22 events (reserved for future use)
+  // SELECT: toggle looper record
   if (nowSel && !btnPrevSEL) {
-    sendCC(22, 10);
+    if (!looperRecordingUI) {
+      sendCC(MidiCC::LOOPER_CONTROL, 40);
+      looperRecordingUI = true;
+      looperPlayingUI   = false;
+      looperHasLoopUI   = false;
+    } else {
+      sendCC(MidiCC::LOOPER_CONTROL, 40);
+      looperRecordingUI = false;
+      looperPlayingUI   = true;
+      looperHasLoopUI   = true;
+    }
   }
+
+  // START: short press toggles playback, long press clears loop
   if (nowStart && !btnPrevSTART) {
-    sendCC(22, 100);
+    startPressing     = true;
+    startPressStartMs = nowMs;
+  }
+  if (!nowStart && btnPrevSTART) {
+    if (startPressing) {
+      uint32_t held = nowMs - startPressStartMs;
+      if (held >= LOOP_CLEAR_MS) {
+        sendCC(MidiCC::LOOPER_CONTROL, 0);
+        looperRecordingUI = false;
+        looperPlayingUI   = false;
+        looperHasLoopUI   = false;
+      } else {
+        if (!looperRecordingUI && looperHasLoopUI) {
+          sendCC(MidiCC::LOOPER_CONTROL, 80);
+          looperPlayingUI = !looperPlayingUI;
+        }
+      }
+    }
+    startPressing = false;
   }
 
   btnPrevX     = nowX;
@@ -608,13 +709,16 @@ void loop()
         encPos[b][e] = newPos;
         int step = (delta > 0) ? 1 : -1;
         int p    = b * 4 + e; // 0..7
-        bumpParam(p, step);
+        bumpEncoderValue(p, step);
       }
 
       bool pressed = !encBoard[b].digitalRead(ENC_SWITCH_PINS[e]);
       if (pressed && !encPressed[b][e]) {
         encPressed[b][e] = true;
-        resetParamToDefault(b * 4 + e);
+        int p = b * 4 + e;
+        EncoderParam &cfg = encoderParams[p];
+        cfg.active = (cfg.active + 1) % PARAMS_PER_ENCODER;
+        sendCC(cfg.cc[cfg.active], cfg.value[cfg.active]);
       } else if (!pressed && encPressed[b][e]) {
         encPressed[b][e] = false;
       }
