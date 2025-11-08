@@ -2,7 +2,7 @@
 #include "daisysp.h"
 #include "daisysp/modules/reverbsc.h"
 
-#include "../../../midi_protocol.h"
+#include "midi_protocol.h"
 
 #include <cstdlib>
 
