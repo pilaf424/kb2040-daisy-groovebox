@@ -1,3 +1,7 @@
+// IMPORTANT:
+// This is the ONE AND ONLY place for MIDI channel/CC definitions.
+// Do NOT create other headers for MIDI. Update this file instead.
+
 #pragma once
 #include <stdint.h>
 
