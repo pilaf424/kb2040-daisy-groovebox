@@ -2,6 +2,8 @@
 #include "daisysp.h"
 #include "daisysp/modules/reverbsc.h"
 
+#include "../../../midi_protocol.h"
+
 #include <cstdlib>
 
 using namespace daisy;
@@ -543,11 +545,11 @@ void HandleCC(uint8_t channel, uint8_t cc, uint8_t val)
 
     switch(cc)
     {
-        case 7: // Volume
+        case MidiCC::VOLUME:
             g_masterGain = powf(n, 1.5f); // nicer taper
             break;
 
-        case 70: // Cutoff
+        case MidiCC::CUTOFF:
         {
             float t = n * n; // more resolution at low freqs
             g_cutoff = kMinFilterCutoff
@@ -556,77 +558,77 @@ void HandleCC(uint8_t channel, uint8_t cc, uint8_t val)
         }
         break;
 
-        case 71: // Reso
+        case MidiCC::RESONANCE:
             g_resonance = 0.1f + 0.9f * n; // 0.1..1.0
             UpdateFilterParams();
             break;
 
-        case 72: // Attack
+        case MidiCC::ATTACK:
             g_attack = 0.001f + 2.0f * n; // 1ms..2s
             UpdateEnvParams();
             break;
 
-        case 73: // Decay
+        case MidiCC::DECAY:
             g_decay = 0.01f + 3.0f * n; // 10ms..3s
             UpdateEnvParams();
             break;
 
-        case 74: // Sustain
+        case MidiCC::SUSTAIN:
             g_sustain = n; // 0..1
             UpdateEnvParams();
             break;
 
-        case 75: // Release
+        case MidiCC::RELEASE:
             g_release = 0.02f + 4.0f * n; // 20ms..4s
             UpdateEnvParams();
             break;
 
-        case 77: // Delay time
+        case MidiCC::DELAY_TIME:
             g_delayTimeSec = 0.02f + 0.98f * n;
             UpdateDelayParams();
             break;
 
-        case 78: // Delay feedback
+        case MidiCC::DELAY_FEEDBACK:
             g_delayFeedback = 0.02f + 0.9f * n;
             if(g_delayFeedback > 0.95f)
                 g_delayFeedback = 0.95f;
             break;
 
-        case 79: // Delay mix
+        case MidiCC::DELAY_MIX:
             g_delayMix = n;
             break;
 
-        case 80: // Reverb mix
+        case MidiCC::REVERB_MIX:
             g_reverbMix = n;
             break;
 
-        case 81: // Reverb time/size
+        case MidiCC::REVERB_TIME:
             g_reverbTime = n;
             UpdateReverbParams();
             break;
 
-        case 84: // Bass boost amount
+        case MidiCC::BASS_BOOST:
             g_bassBoost = n;
             break;
 
-        case 85: // Drive amount
+        case MidiCC::DRIVE:
             g_driveAmount = n;
             break;
 
-        case 92: // Looper level
+        case MidiCC::LOOPER_LEVEL:
             g_looperLevel = n;
             break;
 
-        case 76: // Vibrato rate
+        case MidiCC::VIBRATO_RATE:
             g_vibratoRate = 0.1f + 8.0f * n; // 0.1..8 Hz
             g_vibrLfo.SetFreq(g_vibratoRate);
             break;
 
-        case 1: // Mod wheel from joystick Y
+        case MidiCC::MODWHEEL:
             g_modWheel = n; // 0..1, scales vibrato depth
             break;
 
-        case 64: // Sustain pedal (your X/Y buttons)
+        case MidiCC::SUSTAIN_PEDAL:
         {
             bool newSustain = (val >= 64);
             if(newSustain && !g_sustainOn)
@@ -646,11 +648,11 @@ void HandleCC(uint8_t channel, uint8_t cc, uint8_t val)
         }
         break;
 
-        case 90: // Instrument mode: <64 synth, >=64 drum kit
+        case MidiCC::INSTRUMENT_MODE:
             g_instrMode = (val >= 64) ? MODE_DRUM_KIT : MODE_POLY_SYNTH;
             break;
 
-        case 91: // Looper control
+        case MidiCC::LOOPER_CONTROL:
             if(val < 20)
             {
                 StopLooper();

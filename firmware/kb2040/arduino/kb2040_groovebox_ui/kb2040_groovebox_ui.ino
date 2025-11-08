@@ -4,6 +4,8 @@
 #include <Adafruit_MCP23X17.h>
 #include <Adafruit_seesaw.h>
 
+#include "../../../midi_protocol.h"
+
 // ------------------------- I2C ADDRESSES -----------------------------
 #define OLED_ADDR    0x3C
 #define MCP1_ADDR    0x26
@@ -124,14 +126,14 @@ struct EncoderParam {
 };
 
 EncoderParam encoderParams[NUM_ENCODERS] = {
-  { {"Cut", "Res"},   {70, 71}, {96, 32},  {96, 32}, 0 },
-  { {"DlyT","DlyF"}, {77, 78}, {64, 72},  {64, 72}, 0 },
-  { {"DlyM","RevM"}, {79, 80}, {40, 64},  {40, 64}, 0 },
-  { {"RevS","Bass"}, {81, 84}, {80, 72},  {80, 72}, 0 },
-  { {"Drv", "Vol"},   {85, 7},  {32, 110}, {32, 110},0 },
-  { {"Atk", "Dec"},   {72, 73}, {10, 64},  {10, 64}, 0 },
-  { {"Sus", "Rel"},   {74, 75}, {100, 40}, {100, 40},0 },
-  { {"VibR","Loop"}, {76, 92}, {64, 96},  {64, 96}, 0 },
+  { {"Cut", "Res"},   {MidiCC::CUTOFF,        MidiCC::RESONANCE},     {96, 32},  {96, 32}, 0 },
+  { {"DlyT","DlyF"}, {MidiCC::DELAY_TIME,    MidiCC::DELAY_FEEDBACK}, {64, 72},  {64, 72}, 0 },
+  { {"DlyM","RevM"}, {MidiCC::DELAY_MIX,     MidiCC::REVERB_MIX},     {40, 64},  {40, 64}, 0 },
+  { {"RevS","Bass"}, {MidiCC::REVERB_TIME,   MidiCC::BASS_BOOST},     {80, 72},  {80, 72}, 0 },
+  { {"Drv", "Vol"},   {MidiCC::DRIVE,         MidiCC::VOLUME},        {32, 110}, {32, 110},0 },
+  { {"Atk", "Dec"},   {MidiCC::ATTACK,        MidiCC::DECAY},         {10, 64},  {10, 64}, 0 },
+  { {"Sus", "Rel"},   {MidiCC::SUSTAIN,       MidiCC::RELEASE},       {100, 40}, {100, 40},0 },
+  { {"VibR","Loop"}, {MidiCC::VIBRATO_RATE,  MidiCC::LOOPER_LEVEL},   {64, 96},  {64, 96}, 0 },
 };
 
 // ------------------------- Note name helper --------------------------
@@ -514,8 +516,8 @@ void setup()
   }
 
   // Ensure synth starts in voice mode
-  sendCC(90, 0);
-  sendCC(91, 0);
+  sendCC(MidiCC::INSTRUMENT_MODE, 0);
+  sendCC(MidiCC::LOOPER_CONTROL, 0);
 
   delay(200);
   pulseDaisyReset();
@@ -608,7 +610,7 @@ void loop()
     }
   }
   if (abs((int)mod - (int)lastMod) > 2) {
-    sendCC(1, mod);
+    sendCC(MidiCC::MODWHEEL, mod);
     lastMod = mod;
   }
 
@@ -622,10 +624,10 @@ void loop()
 
   // Sustain ON/OFF
   if (nowX && !btnPrevX) {
-    sendCC(64, 127);
+    sendCC(MidiCC::SUSTAIN_PEDAL, 127);
   }
   if (nowYb && !btnPrevY) {
-    sendCC(64, 0);
+    sendCC(MidiCC::SUSTAIN_PEDAL, 0);
   }
 
   // A: cycle play modes (single -> chord -> scale -> drum)
@@ -635,9 +637,9 @@ void loop()
     lastKeyIdx  = -1;
     lastKeyMidi = 0;
     if (g_playMode == MODE_DRUM)
-      sendCC(90, 127);
+      sendCC(MidiCC::INSTRUMENT_MODE, 127);
     else
-      sendCC(90, 0);
+      sendCC(MidiCC::INSTRUMENT_MODE, 0);
   }
 
   // B: cycle chord/scale variations depending on mode
@@ -655,12 +657,12 @@ void loop()
   // SELECT: toggle looper record
   if (nowSel && !btnPrevSEL) {
     if (!looperRecordingUI) {
-      sendCC(91, 40);
+      sendCC(MidiCC::LOOPER_CONTROL, 40);
       looperRecordingUI = true;
       looperPlayingUI   = false;
       looperHasLoopUI   = false;
     } else {
-      sendCC(91, 40);
+      sendCC(MidiCC::LOOPER_CONTROL, 40);
       looperRecordingUI = false;
       looperPlayingUI   = true;
       looperHasLoopUI   = true;
@@ -676,13 +678,13 @@ void loop()
     if (startPressing) {
       uint32_t held = nowMs - startPressStartMs;
       if (held >= LOOP_CLEAR_MS) {
-        sendCC(91, 0);
+        sendCC(MidiCC::LOOPER_CONTROL, 0);
         looperRecordingUI = false;
         looperPlayingUI   = false;
         looperHasLoopUI   = false;
       } else {
         if (!looperRecordingUI && looperHasLoopUI) {
-          sendCC(91, 80);
+          sendCC(MidiCC::LOOPER_CONTROL, 80);
           looperPlayingUI = !looperPlayingUI;
         }
       }
