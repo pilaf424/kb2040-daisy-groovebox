@@ -27,7 +27,10 @@ static const float kMinFilterCutoff = 80.0f;
 #ifdef PI
 static const float kTwoPi          = 2.0f * PI;
 #else
-static const float kTwoPi          = 6.28318530717958647692f;
+#ifndef PI_F
+constexpr float PI_F = 3.14159265358979323846f;
+#endif
+static const float kTwoPi          = 2.0f * PI_F;
 #endif
 
 enum InstrumentMode

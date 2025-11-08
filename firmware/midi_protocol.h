@@ -1,14 +1,5 @@
-// IMPORTANT:
-// This is the ONE AND ONLY place for MIDI channel/CC definitions.
-// Do NOT create other headers for MIDI. Update this file instead.
-
 #pragma once
 #include <stdint.h>
-#include <stddef.h>
-
-// A monotonically increasing identifier so both firmwares can assert they are
-// built against the same contract.  Increment whenever anything below changes.
-constexpr uint32_t MIDI_PROTOCOL_VERSION = 0x0001'0002; // v1.2
 
 // MIDI channels we care about right now.
 // Everything currently runs on channel 1 (SYNTH).
